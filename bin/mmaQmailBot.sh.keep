@@ -1,0 +1,249 @@
+#!/bin/bash
+#!/bin/bash
+
+# example of mhlist
+# /usr/bin/mh/mhlist -type application/postscript -type image/tif -noheaders -f ../samples/email/twoAttach.inMail
+
+# NOTYET
+#
+# This depends on mh -- apt-get nmh should go some where
+#
+
+typeset RcsId="$Id: mmaQmailBot.sh.keep,v 1.1.1.1 2016-06-08 23:49:51 lsipusr Exp $"
+
+if [ "${loadFiles}X" == "X" ] ; then
+     `dirname $0`/seedActions.sh -l $0 "$@"
+    exit $?
+fi
+
+. ${opBinBase}/opAcctLib.sh
+. ${opBinBase}/mmaLib.sh
+. ${mailBinBase}/mmaQmailLib.sh
+
+# PRE parameters
+typeset -t acctName="MANDATORY"
+
+typeset msgBodyPartsList=""
+
+function vis_examples {
+  typeset visLibExamples=`visLibExamplesOutput ${G_myName}`
+ cat  << _EOF_
+EXAMPLES:
+${visLibExamples}
+--- ACCESS CONTROL FACILITIES ---
+cat /opt/public/osmt/samples/email/oneAttach.inMail | ${G_myName} -p acSpec=./mailBot.accessControl -i accessControlVerify
+cat /opt/public/osmt/samples/email/twoAttach.inMail | ${G_myName} -p acSpec=./mailBot.accessControl -i accessControlVerify
+--- GENERIC ANALYSIS FACILITIES ---
+cat /etc/motd | ${G_myName} -p acctName=sa-20051 -i environmentCapture
+cat /etc/motd | ${G_myName} -v -n showRun -i environmentCapture
+cat /etc/motd | ${G_myName} -v -n showRun -i messageCapture
+--- END-TO-END TESTING ---
+mimeMailInject.sh -p toAddrList="faxout-4256442886@mohsen.banan.1.byname.net" -i email_qmail /opt/public/osmt/samples/ps/small.ps 
+mimeMailInject.sh -p toAddrList="faxout-4256442886@mohsen.banan.1.byname.net" -i email_qmail /opt/public/osmt/samples/ps/small.pdf
+_EOF_
+}
+
+
+function vis_help {
+  cat  << _EOF_
+
+_EOF_
+}
+
+function noArgsHook {
+    vis_examples
+}
+
+function vis_environmentCapture {
+  
+  if [[ "${acctName}_" == "_" ]] ; then
+    EH_problem "acctName does not exist and/or does not belong in ${opRunHostName}."
+    return 1
+  else
+    opAcctInfoGet ${acctName}
+
+    if [[ "${G_verbose}_" == "verbose_" ]] ; then
+      echo "opAcct_homeDir=${opAcct_homeDir}"
+    fi
+  fi
+}
+
+
+function vis_messageCapture {
+  
+  if [[ "${acctName}_" == "_" ]] ; then
+    EH_problem "acctName does not exist and/or does not belong in ${opRunHostName}."
+    return 1
+  else
+    opAcctInfoGet ${acctName}
+
+    if [[ "${G_verbose}_" == "verbose_" ]] ; then
+      echo "opAcct_homeDir=${opAcct_homeDir}"
+    fi
+  fi
+
+  from=$SENDER
+  to="$EXT@$HOST2"
+
+  # When invoked by qmail, generated dirs are 700
+  umask 22
+
+  typeset myTmp="${opAcct_homeDir}/tmp"
+
+  mkdir -p ${myTmp}
+
+  tmpFile=${myTmp}/$$.inMail
+    #echo "${G_myName}" > ${tmpFile}
+    #echo "${acctName}" >> ${tmpFile}
+    #echo "To is ${to}" >> ${tmpFile}
+    #echo "From is ${from}" >> ${tmpFile}
+
+  
+  cat >> ${tmpFile}
+
+  ftmp=${myTmp}/mhs$$
+  rm -rf $ftmp.d
+  mkdir $ftmp.d
+  cd $ftmp.d
+  export PATH=/usr/bin/mh:${PATH}
+  mhstore + -auto -file ${tmpFile} -noverbose 2>/dev/null
+
+  typeset outFiles=""
+  
+  for finp in $ftmp.d/*
+  do
+    tipo=$(file -b $finp)
+    case "$tipo" in
+      HTML\ *)
+	       /usr/bin/htmldoc --webpage -t ps $finp > ${finp}.ps
+	       outFiles="${outFiles} ${finp}.ps"
+	       ;;
+      PDF\ *) 
+	      outFiles="${outFiles} $finp"
+	      ;;
+      ASCII\ *) 
+              enscript -o ${finp}.ps $finp 2>/dev/null
+	       outFiles="${outFiles} ${finp}.ps"
+	      ;;
+      PostScript\ *)
+		     outFiles="${outFiles} $finp"
+		     ;;
+      *)
+	 EH_problem "Unknown File Type"
+	 ;;
+    esac
+  done
+
+    # NOTYET
+    # Parse from and to and envelope and 
+    # capture and validate phone number
+    # Sumbit to sendfax
+
+  typeset thisTo=`print $EXT  | cut -d "-" -f2`
+  opDoComplain /usr/bin/sendfax -D -n -f "$from" -d "$thisTo" ${outFiles}
+  #opDoComplain /usr/bin/sendfax -D -f "$from" -d "$thisTo" ${outFiles}
+
+    # Clean-up -- Comment out for debugging
+  rm -rf $ftmp.d
+  /bin/rm ${tmpFile}
+}
+
+function vis_accessControlVerify {
+    #set -x
+
+  typeset retVal=0
+
+  . ${acSpec}
+  from=$SENDER
+  to="$EXT@$HOST2"
+
+  # When invoked by qmail, generated dirs are 700
+  umask 22
+
+  typeset myTmp="/tmp"
+
+  mkdir -p ${myTmp}
+
+  tmpFile=${myTmp}/$$.inMail
+  
+  cat >> ${tmpFile}
+
+  ftmp=${myTmp}/mhs$$
+  rm -rf $ftmp.d
+  opDoRet mkdir $ftmp.d
+  opDoRet cd $ftmp.d
+    pwd
+  export PATH=/usr/bin/mh:${PATH}
+  mhstore + -auto -file ${tmpFile} -noverbose 2>/dev/null
+  #mhstore  -auto -file ${tmpFile} -noverbose 2>/dev/null
+
+  integer thisRetVal=0
+  acBodyPartsVerify $ftmp.d/* || thisRetVal=$?
+  if [[ ${thisRetVal} -ne 0 ]] ; then
+    retVal=1
+  fi
+
+  # Clean-up -- Comment out for debugging
+  echo rm -rf $ftmp.d
+  echo /bin/rm ${tmpFile}
+  return 0
+}
+
+function acBodyPartsVerify {
+    #set -x
+
+  #$@ = file list
+  
+  integer retVal=0
+  IS_inList all "${ac_bodyPartsAllowList}" || retVal=$?
+  if [[ ${retVal} -eq 0 ]] ; then
+    return  0
+  fi
+
+  for finp in $@ ; do
+    tipo=$(file -b $finp)
+    case $tipo in
+      HTML\ *)
+	       bodyPartType="html"
+	       msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+	       ;;
+      PDF\ *) 
+	      bodyPartType="pdf"
+	      msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+	      ;;
+      ASCII\ *) 
+		bodyPartType="ascii"
+		msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+		;;
+      PostScript\ *)
+		     bodyPartType="ps"
+		     msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+		     ;;
+      TIFF\ *)
+		     bodyPartType="tiff"
+		     msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+		     ;;
+      *)
+	 bodyPartType="unknown"
+	 msgBodyPartsList="${msgBodyPartsList} ${bodyPartType}"
+	 ;;
+    esac
+  done  
+
+  typeset oneType
+  integer retVal=0
+  for oneType in $msgBodyPartsList ; do
+    IS_inList "${oneType}" ${ac_bodyPartsAllowList} || retVal=$?
+    if [[ ${retVal} -eq 0 ]] ; then
+      ANV_raw "${oneType} is allowed"
+      continue
+    else
+      ANV_raw "${oneType} is NOT allowed"
+      return 1
+    fi
+  done
+
+}
+
+# accessControlVerify
+# acFromVerify, acBodyPartsVerify, acEnvelopeVerify

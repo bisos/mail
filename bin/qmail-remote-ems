@@ -1,0 +1,122 @@
+#!/bin/bash
+
+typeset RcsId="$Id: qmail-remote-ems,v 1.1.1.1 2016-06-08 23:49:51 lsipusr Exp $"
+
+if [ "${loadFiles}X" == "X" ] ; then
+    /opt/public/osmt/bin/seedActions.sh -l $0 "$@"
+    exit $?
+fi
+
+vis_help () {
+  cat  << _EOF_
+qmail-remote emulation for emsd-ua submission 
+implemented as a lsip script.   
+_EOF_
+}
+
+
+# ./leapCommon.libSh
+. ${opBinBase}/leapCommon.libSh
+
+
+function vis_examples {
+    #typeset visLibExamples=`visLibExamplesOutput ${G_myName}`
+    typeset oneUsername=`whoami`
+ cat  << _EOF_
+EXAMPLES:
+${G_myName} -i examples
+${G_myName} -i help
+${G_myName} -v -n showRun -i noArgsRun 1 2 3 < /etc/motd
+emulates qmail-remote
+See also:
+leapEmsdUaServers.sh -i qmail-remote-update
+leapEmsdUaServers.sh -i qmail-remote-revert
+_EOF_
+}
+
+vis_todo () {
+  cat  << _EOF_
+
+- Setup outgoing record 
+
+- Keep ignored messages
+
+_EOF_
+}
+
+vis_noArgsRun () {
+  noArgsHook $@
+}
+
+argHost=""
+argSender=""
+argRecpients=""
+
+msgTmpFile=""
+
+noArgsHook() {
+    msgTmpFile="/tmp/qmail-remote-ems.$$"
+    /bin/cat - > ${msgTmpFile}
+
+    argHost=$1
+    argSender=$2
+    shift
+    shift
+    argRecpients="$@"
+
+
+    if ! shouldBeIgnored ; then
+	ANT_raw "IGNORED"
+	opDo 
+	return
+    fi
+
+    minTag=`date '+%M'`
+
+    opDo cp ${msgTmpFile}  ${leapUaSpoolSubmitBaseDir}/S_0101${minTag}
+
+    opDo chmod 666 ${leapUaSpoolSubmitBaseDir}/S_0101${minTag}
+}
+
+shouldBeIgnored () {
+    if ! which formail 1> /dev/null 2>&1 ; then
+	EH_problem "Missing formail executable, perhaps:"
+	ANT_raw "apt-get install procmail"
+	return 100
+    fi
+
+    #headerSubject=$(cat ${msgTmpFile} | reformail -x Subject:)
+    headerMessageId=$(cat ${msgTmpFile} | reformail -x Message-Id:)
+    headerFrom=$(cat ${msgTmpFile} | reformail -x From:)
+
+    fromLocalPart=$( MA_localPart ${headerFrom} )
+
+cat  << _EOF_ >> ${leapLogUaQmailLog}
+argSender=${argSender} -- argHost=${argHost} -- headerFrom=${headerFrom} -- headerMessageId=${headerMessageId}
+_EOF_
+
+    if [ "${fromLocalPart}_" = "MAILER-DAEMON_" ] ; then 
+	ANT_raw "Message ${headerMessageId} -- IGNORED" 1>> ${leapLogUaQmailLog} 2>&1
+	return 100
+    fi
+
+    # This is temporary -- Not needed if
+    # we were simulating qmail-remote properly
+    #
+    if [ "${headerMessageId}_" != "_" ] ; then
+	if [ ! -f ${leapUaSpoolMessageIdList} ] ; then 
+	    opDo mkdir -p $( FN_dirsPart ${leapUaSpoolMessageIdList} )
+	    opDo touch ${leapUaSpoolMessageIdList}
+	fi
+	if ( grep ${headerMessageId} ${leapUaSpoolMessageIdList} > /dev/null ) ; then
+	    ANT_raw "Message ${headerMessageId} Duplicate -- IGNORED" 1>> ${leapLogUaQmailLog} 2>&1
+	    return 100
+	else 
+	    echo ${headerMessageId} >> ${leapUaSpoolMessageIdList}
+	fi
+    fi
+
+    ANT_raw "Message ${headerMessageId} -- PROCESSED" 1>> ${leapLogUaQmailLog} 2>&1
+    return 0
+}
+

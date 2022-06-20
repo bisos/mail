@@ -1,0 +1,51 @@
+#!/bin/bash
+#
+#   mailfax - email to fax gateway for qmail.
+#
+#   This file should be installed as /var/spool/hylafax/bin/qmail-fax.sh
+#   and the following changes made to the qmail configuration:
+#
+#   Add the following to ${qmailVarDir}/control/virtualdomains
+#       .fax:fax
+#
+#   Add the following to ${qmailVarDir}/alias/.qmail-fax-default
+#       | /var/spool/hylafax/bin/qmail-fax.sh
+#
+from=$SENDER
+to="$EXT@$HOST2"
+
+logger -p mail.notice -t qmail-fax "Send Fax Via E-Mail (From $from To $to)"
+
+exit 0
+(
+ftmp=/tmp/mhs$$
+rm -rf $ftmp.d
+mkdir $ftmp.d
+cd $ftmp.d
+mhstore + -auto -file - -noverbose 2>/dev/null
+
+for finp in $ftmp.d/*
+do
+        tipo=$(file -b $finp)
+        case "$tipo" in
+        HTML\ *)
+                /usr/bin/htmldoc --webpage -t ps $finp |
+                /usr/bin/sendfax -D -n -f "$from" -d "$to"
+        ;;
+        PDF\ *) echo "PDF:$finp"
+        ;;
+        *)
+                echo "Attenzione: Allegato $finp ($tipo) non previsto."
+        ;;
+        esac
+done
+
+rm -rf $ftmp.d
+
+) |
+logger -p mail.notice -t qmail-fax
+
+exit 0
+#/usr/bin/faxmail |
+#/usr/bin/sendfax -D -n -f "$from" -d "$to"
+#/usr/bin/faxmail -f "$from" -d "$to"
