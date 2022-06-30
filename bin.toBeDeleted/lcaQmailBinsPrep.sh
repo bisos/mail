@@ -221,9 +221,16 @@ binsPrep_qmail_DEFAULT_DEFAULT () {
 }
 
 binsPrep_qmail_DEBIAN_11 () {
-    mmaThisPkgName="qmailNOT"
+    mmaThisPkgName="qmailDeb10"
     mmaPkgDebianName="${mmaThisPkgName}"
-    mmaPkgDebianMethod="apt" 
+    mmaPkgDebianMethod="custom"  #  or "apt" no need for customInstallScript but with binsPrep_installPostHook
+
+    function customInstallScript {
+        #lpDo sudo dpkg --purge --force-all zoom
+        inBaseDirDo /tmp wget http://ftp.us.debian.org/debian/pool/main/n/netqmail/qmail_1.06-6.2~deb10u1_amd64.deb
+        
+        opDo sudo apt-get install -y /tmp/qmail_1.06-6.2~deb10u1_amd64.deb
+    }
     binsPrep_installPreHook="qmail_installPre"
     binsPrep_installPostHook="qmail_installPost"
 }
